@@ -16,3 +16,11 @@ logs/
 .vscode/
 
 .DS_Store
+
+# Secrets
+.gittoken
+*.token
+*.key
+*.secret
+.env
+.env.*
