@@ -2,127 +2,38 @@
 
 import argparse
 import json
-import subprocess
-from datetime import datetime
-from pathlib import Path
+
+from core.prompts import build_prompt, build_analysis_prompt
+from core.rabbit import run_rabbit
+from core.reports import save_report
+from core.web_collector import collect_http_evidence
 
 
-BASE_DIR = Path(__file__).resolve().parent
-REPORTS_DIR = BASE_DIR / "reports"
+def safe_json_loads(content):
+    content = content.strip()
 
+    if content.startswith("```json"):
+        content = content.removeprefix("```json").strip()
 
-def build_prompt(target, mode, domain):
-    return f"""
-Respond ONLY with valid JSON.
+    if content.startswith("```"):
+        content = content.removeprefix("```").strip()
 
-You are WhiteRabbit Neo, a cybersecurity specialist used by Ignis.
+    if content.endswith("```"):
+        content = content.removesuffix("```").strip()
 
-Ignis provided the following operator input:
-
-target: {target}
-mode: {mode}
-domain: {domain}
-
-Important:
-The operator input itself is valid evidence.
-You may use target, mode, and domain as known facts.
-Do not infer anything beyond them.
-
-Mode meanings:
-- recon: collect initial evidence and understand the target.
-- pentest: analyze evidence to identify possible vulnerabilities.
-- attack-surface: identify exposed assets and reachable components.
-
-Rules:
-- Never claim to accessed the target.
-- Never invent technologies, users, business context, firewall, WAF, OS, authentication, or vulnerabilities.
-- If something was not observed, mark it as unknown.
-- Do not recommend mitigations.
-- Do not create vulnerability findings in recon mode.
-- Recon mode must focus on evidence collection.
-- Fill every field.
-- Do not use markdown.
-- Do not add extra text.
-
-Return exactly this JSON structure:
-
-{{
-  "target": "{target}",
-  "mode": "{mode}",
-  "domain": "{domain}",
-  "objective": "Collect initial evidence and understand the target.",
-  "known_facts": [
-    "The operator provided the target: {target}",
-    "The operator selected mode: {mode}",
-    "The operator selected domain: {domain}"
-  ],
-  "unknowns": [
-    "HTTP response status",
-    "HTTP response headers",
-    "Page title",
-    "HTML content",
-    "Technologies in use",
-    "Public routes",
-    "Authentication requirements"
-  ],
-  "missing_evidence": [
-    "HTTP response",
-    "HTTP headers",
-    "Initial HTML",
-    "Discovered links",
-    "Technology fingerprinting"
-  ],
-  "recommended_collection": [
-    "Send a safe HTTP GET request to the target",
-    "Collect HTTP status code",
-    "Collect response headers",
-    "Collect page title",
-    "Collect initial HTML sample",
-    "Extract public links from HTML"
-  ],
-  "initial_tracks": [
-    "HTTP baseline collection",
-    "Technology discovery",
-    "Public route mapping",
-    "Authentication surface identification"
-  ],
-  "confidence": "medium"
-}}
-""".strip()
-
-def run_rabbit(prompt):
-    result = subprocess.run(
-        ["ollama", "run", "rabbit-direto", prompt],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr)
-
-    return result.stdout.strip()
-
-
-def save_report(content, target, mode, domain):
-    REPORTS_DIR.mkdir(exist_ok=True)
-
-    safe_target = (
-        target.replace("https://", "")
-        .replace("http://", "")
-        .replace("/", "_")
-        .replace(":", "_")
-    )
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    filename = f"{timestamp}_{domain}_{mode}_{safe_target}.json"
-    path = REPORTS_DIR / filename
-
-    path.write_text(content, encoding="utf-8")
-    return path
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {
+            "error": "Rabbit response was not valid JSON",
+            "raw_response": content
+        }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ignis - Cyber Investigation Orchestrator")
+    parser = argparse.ArgumentParser(
+        description="MagnoCyber - Cyber Investigation Orchestrator"
+    )
 
     parser.add_argument("--target", required=True, help="Target URL, domain, IP or asset")
     parser.add_argument("--mode", required=True, choices=["recon", "pentest", "attack-surface"])
@@ -131,11 +42,72 @@ def main():
     args = parser.parse_args()
 
     prompt = build_prompt(args.target, args.mode, args.domain)
-    response = run_rabbit(prompt)
-    report_path = save_report(response, args.target, args.mode, args.domain)
+    planning_response = run_rabbit(prompt)
 
-    print(response)
+    if args.domain == "web":
+        evidence = collect_http_evidence(args.target)
+    else:
+        evidence = {
+            "collector": args.domain,
+            "target": args.target,
+            "error": f"Collector not implemented for domain: {args.domain}"
+        }
+
+
+    analysis_evidence = compact_evidence_for_analysis(evidence)
+
+    analysis_prompt = build_analysis_prompt(
+        args.target,
+        args.mode,
+        args.domain,
+        analysis_evidence
+    )
+
+    analysis_response = run_rabbit(analysis_prompt)
+
+    output = {
+        "target": args.target,
+        "mode": args.mode,
+        "domain": args.domain,
+        "planning": safe_json_loads(planning_response),
+        "evidence": evidence,
+        "analysis": safe_json_loads(analysis_response),
+    }
+
+    report_content = json.dumps(output, indent=2, ensure_ascii=False)
+    report_path = save_report(report_content, args.target, args.mode, args.domain)
+
+    print(report_content)
     print(f"\n[+] Report saved to: {report_path}")
+
+
+def compact_evidence_for_analysis(evidence):
+    headers = evidence.get("headers", {})
+
+    return {
+        "collector": evidence.get("collector"),
+        "target": evidence.get("target"),
+        "status_code": evidence.get("status_code"),
+        "final_url": evidence.get("final_url"),
+        "title": evidence.get("title"),
+        "server": headers.get("Server"),
+        "content_type": headers.get("Content-Type"),
+        "security_headers_present": {
+            "strict_transport_security": bool(headers.get("Strict-Transport-Security")),
+            "content_security_policy": bool(headers.get("Content-Security-Policy")),
+            "x_frame_options": bool(headers.get("X-Frame-Options")),
+            "x_content_type_options": bool(headers.get("X-Content-Type-Options")),
+            "referrer_policy": bool(headers.get("Referrer-Policy")),
+            "permissions_policy": bool(headers.get("Permissions-Policy")),
+        },
+        "links_count": len(evidence.get("links", [])),
+        "links": evidence.get("links", [])[:20],
+        "asset_hints": [
+            "/assets/index-CYzRzrr0.js",
+            "/assets/index-D9RzE5Oi.css"
+        ] if "html_sample" in evidence else []
+    }
+
 
 
 if __name__ == "__main__":
