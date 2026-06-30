@@ -1,0 +1,44 @@
+```json
+{
+  "target": "https://app.alwaysoncyber.com",
+  "mode": "recon",
+  "domain": "web",
+  "objective": "Collect initial evidence and understand the target.",
+  "known_facts": [
+    "The operator provided the target: https://app.alwaysoncyber.com",
+    "The operator selected mode: recon",
+    "The operator selected domain: web"
+  ],
+  "unknowns": [
+    "HTTP response status",
+    "HTTP response headers",
+    "Page title",
+    "HTML content",
+    "Technologies in use",
+    "Public routes",
+    "Authentication requirements"
+  ],
+  "missing_evidence": [
+    "HTTP response",
+    "HTTP headers",
+    "Initial HTML",
+    "Discovered links",
+    "Technology fingerprinting"
+  ],
+  "recommended_collection": [
+    "Send a safe HTTP GET request to the target",
+    "Collect HTTP status code",
+    "Collect response headers",
+    "Collect page title",
+    "Collect initial HTML sample",
+    "Extract public links from HTML"
+  ],
+  "initial_tracks": [
+    "HTTP baseline collection",
+    "Technology discovery",
+    "Public route mapping",
+    "Authentication surface identification"
+  ],
+  "confidence": "medium"
+}
+```

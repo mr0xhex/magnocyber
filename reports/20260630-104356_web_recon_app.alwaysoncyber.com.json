@@ -1,0 +1,67 @@
+```json
+{
+  "target": "https://app.alwaysoncyber.com",
+  "mode": "recon",
+  "domain": "web",
+  "objective": {
+    "type": "recon",
+    "description": "Compreender o alvo e mapear superfície inicial."
+  },
+  "assumptions": [
+    "O alvo é um site da web.",
+    "Não há restrições de acesso ao alvo.",
+    "A organização do alvo não está protegida por firewalls ou outros dispo[5D[K
+dispositivos de segurança."
+  ],
+  "missing_evidence": [
+    "Evidências de navegação no site (URLs, títulos de página, conteúdo)",
+    "Informações sobre o servidor web (versão do software, configurações, p[1D[K
+plugins)"
+  ],
+  "recommended_collection": {
+    "type": "manual",
+    "steps": [
+      "Navegar pelo site e coletar URLs.",
+      "Coletar informações de cabeçalho HTTP (User-Agent, Referer).",
+      "Verificar se o site está protegido por CAPTCHA ou outros mecanismos [K
+de detecção de robôs."
+    ]
+  },
+  "initial_tracks": [
+    {
+      "type": "manual",
+      "description": "Coletar informações básicas do site.",
+      "steps": [
+        "Navegar pelo site e coletar URLs.",
+        "Verificar se o site está protegido por CAPTCHA ou outros mecanismo[9D[K
+mecanismos de detecção de robôs."
+      ]
+    },
+    {
+      "type": "manual",
+      "description": "Coletar informações do servidor web.",
+      "steps": [
+        "Verificar se o site está protegido por CAPTCHA ou outros mecanismo[9D[K
+mecanismos de detecção de robôs."
+      ]
+    },
+    {
+      "type": "manual",
+      "description": "Coletar informações sobre a organização do alvo.",
+      "steps": [
+        "Verificar se há informações de contato no rodapé ou em outras pági[4D[K
+páginas."
+      ]
+    }
+  ],
+  "conclusion": {
+    "type": "manual",
+    "description": "Analisar as evidências coletadas para identificar o alv[3D[K
+alvo e mapear a superfície inicial.",
+    "steps": [
+      "Criar um mapa de sites com URLs, títulos de página e conteúdo.",
+      "Identificar se há informações sensíveis ou dados de interesse."
+    ]
+  }
+}
+```
