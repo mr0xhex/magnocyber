@@ -2,27 +2,38 @@
 
 import argparse
 import json
+import sys
 
-from core.prompts import build_prompt, build_analysis_prompt
 from core.rabbit import run_rabbit
 from core.reports import save_report
-from core.web_collector import collect_http_evidence
+
+from core.web_collector import (
+    collect_http_evidence,
+    build_web_planning_prompt,
+    build_web_analysis_prompt
+)
+
+from core.dns_collector import (
+    collect_dns_evidence,
+    build_dns_planning_prompt,
+    build_dns_analysis_prompt
+)
 
 
 def safe_json_loads(content):
-    content = content.strip()
+    cleaned = content.strip()
 
-    if content.startswith("```json"):
-        content = content.removeprefix("```json").strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned.replace("```json", "", 1).strip()
 
-    if content.startswith("```"):
-        content = content.removeprefix("```").strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.replace("```", "", 1).strip()
 
-    if content.endswith("```"):
-        content = content.removesuffix("```").strip()
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3].strip()
 
     try:
-        return json.loads(content)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
         return {
             "error": "Rabbit response was not valid JSON",
@@ -30,84 +41,100 @@ def safe_json_loads(content):
         }
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="MagnoCyber - Cyber Investigation Orchestrator"
-    )
-
-    parser.add_argument("--target", required=True, help="Target URL, domain, IP or asset")
-    parser.add_argument("--mode", required=True, choices=["recon", "pentest", "attack-surface"])
-    parser.add_argument("--domain", required=True, choices=["web", "network", "cloud", "identity"])
-
-    args = parser.parse_args()
-
-    prompt = build_prompt(args.target, args.mode, args.domain)
-    planning_response = run_rabbit(prompt)
-
-    if args.domain == "web":
-        evidence = collect_http_evidence(args.target)
-    else:
-        evidence = {
-            "collector": args.domain,
-            "target": args.target,
-            "error": f"Collector not implemented for domain: {args.domain}"
+def get_domain_handlers(domain):
+    if domain == "web":
+        return {
+            "planning_prompt": build_web_planning_prompt,
+            "collector": collect_http_evidence,
+            "analysis_prompt": build_web_analysis_prompt
         }
 
+    if domain == "dns":
+        return {
+            "planning_prompt": build_dns_planning_prompt,
+            "collector": collect_dns_evidence,
+            "analysis_prompt": build_dns_analysis_prompt
+        }
 
-    analysis_evidence = compact_evidence_for_analysis(evidence)
+    raise ValueError(f"Unsupported domain: {domain}")
 
-    analysis_prompt = build_analysis_prompt(
-        args.target,
-        args.mode,
-        args.domain,
-        analysis_evidence
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="MagnoCyber - Rabbit-guided cybersecurity orchestrator"
     )
 
-    analysis_response = run_rabbit(analysis_prompt)
+    parser.add_argument(
+        "--target",
+        required=True,
+        help="Target URL or domain"
+    )
 
-    output = {
-        "target": args.target,
-        "mode": args.mode,
-        "domain": args.domain,
-        "planning": safe_json_loads(planning_response),
-        "evidence": evidence,
-        "analysis": safe_json_loads(analysis_response),
-    }
+    parser.add_argument(
+        "--mode",
+        required=True,
+        choices=["recon", "pentest", "attack-surface"],
+        help="Operation mode"
+    )
 
-    report_content = json.dumps(output, indent=2, ensure_ascii=False)
-    report_path = save_report(report_content, args.target, args.mode, args.domain)
+    parser.add_argument(
+        "--domain",
+        required=True,
+        choices=["web", "dns"],
+        help="Collection domain"
+    )
 
-    print(report_content)
-    print(f"\n[+] Report saved to: {report_path}")
+    return parser.parse_args()
 
 
-def compact_evidence_for_analysis(evidence):
-    headers = evidence.get("headers", {})
+def main():
+    args = parse_args()
 
-    return {
-        "collector": evidence.get("collector"),
-        "target": evidence.get("target"),
-        "status_code": evidence.get("status_code"),
-        "final_url": evidence.get("final_url"),
-        "title": evidence.get("title"),
-        "server": headers.get("Server"),
-        "content_type": headers.get("Content-Type"),
-        "security_headers_present": {
-            "strict_transport_security": bool(headers.get("Strict-Transport-Security")),
-            "content_security_policy": bool(headers.get("Content-Security-Policy")),
-            "x_frame_options": bool(headers.get("X-Frame-Options")),
-            "x_content_type_options": bool(headers.get("X-Content-Type-Options")),
-            "referrer_policy": bool(headers.get("Referrer-Policy")),
-            "permissions_policy": bool(headers.get("Permissions-Policy")),
-        },
-        "links_count": len(evidence.get("links", [])),
-        "links": evidence.get("links", [])[:20],
-        "asset_hints": [
-            "/assets/index-CYzRzrr0.js",
-            "/assets/index-D9RzE5Oi.css"
-        ] if "html_sample" in evidence else []
-    }
+    try:
+        handlers = get_domain_handlers(args.domain)
 
+        planning_prompt = handlers["planning_prompt"](
+            args.target,
+            args.mode
+        )
+
+        planning_response = run_rabbit(planning_prompt)
+        planning = safe_json_loads(planning_response)
+
+        evidence = handlers["collector"](args.target)
+
+        analysis_prompt = handlers["analysis_prompt"](
+            args.target,
+            args.mode,
+            evidence
+        )
+
+        analysis_response = run_rabbit(analysis_prompt)
+        analysis = safe_json_loads(analysis_response)
+
+        output = {
+            "target": args.target,
+            "mode": args.mode,
+            "domain": args.domain,
+            "planning": planning,
+            "evidence": evidence,
+            "analysis": analysis
+        }
+
+        print(json.dumps(output, indent=2, ensure_ascii=False))
+
+        report_path = save_report(
+            json.dumps(output, indent=2, ensure_ascii=False),
+            args.target,
+            args.mode,
+            args.domain
+        )
+
+        print(f"\n[+] Report saved to: {report_path}")
+
+    except Exception as error:
+        print(f"[!] Error: {error}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

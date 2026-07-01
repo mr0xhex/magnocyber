@@ -1,0 +1,773 @@
+#!/usr/bin/env python3
+
+import json
+import re
+import shutil
+import subprocess
+from urllib.parse import urlparse
+
+
+DNS_RECORD_TYPES = [
+    "A",
+    "AAAA",
+    "CNAME",
+    "MX",
+    "NS",
+    "TXT",
+    "SOA",
+    "CAA"
+]
+
+DNS_TOOLS = [
+    "dig",
+    "host",
+    "nslookup",
+    "whois",
+    "dnsrecon",
+    "dnsenum",
+    "fierce"
+]
+
+
+DOMAIN_PATTERN = re.compile(
+    r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\.?\b"
+)
+
+IPV4_PATTERN = re.compile(
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+)
+
+IPV6_PATTERN = re.compile(
+    r"\b(?:[0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F]{0,4}\b"
+)
+
+
+# -----------------------------------------------------------------------------
+# Target and command helpers
+# -----------------------------------------------------------------------------
+
+
+def normalize_target(target):
+    parsed = urlparse(target)
+
+    if parsed.netloc:
+        return parsed.netloc.strip().lower()
+
+    return (
+        target.replace("https://", "")
+        .replace("http://", "")
+        .split("/")[0]
+        .strip()
+        .lower()
+    )
+
+
+def derive_root_domain(domain):
+    parts = domain.split(".")
+
+    if len(parts) <= 2:
+        return domain
+
+    return ".".join(parts[-2:])
+
+
+def tool_exists(tool):
+    return shutil.which(tool) is not None
+
+
+def run_command(command, timeout=45, max_output=12000):
+    tool = command[0]
+
+    if not tool_exists(tool):
+        return {
+            "tool": tool,
+            "status": "missing",
+            "command": command,
+            "stdout": "",
+            "stderr": "",
+            "returncode": None
+        }
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+        return {
+            "tool": tool,
+            "status": "ok" if result.returncode == 0 else "error",
+            "command": command,
+            "stdout": result.stdout[:max_output],
+            "stderr": result.stderr[:max_output],
+            "returncode": result.returncode
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "tool": tool,
+            "status": "timeout",
+            "command": command,
+            "stdout": "",
+            "stderr": "Command timed out",
+            "returncode": None
+        }
+
+
+# -----------------------------------------------------------------------------
+# Basic DNS collection
+# -----------------------------------------------------------------------------
+
+
+def run_dig(domain, record_type):
+    result = run_command(
+        ["dig", "+short", domain, record_type],
+        timeout=20
+    )
+
+    values = [
+        line.strip()
+        for line in result.get("stdout", "").splitlines()
+        if line.strip()
+    ]
+
+    return {
+        "record_type": record_type,
+        "values": values,
+        "count": len(values),
+        "tool_status": result["status"],
+        "error": result["stderr"] if result["stderr"] else None
+    }
+
+
+def collect_dig_records(domain):
+    records = {}
+
+    for record_type in DNS_RECORD_TYPES:
+        records[record_type] = run_dig(domain, record_type)
+
+    return records
+
+
+def collect_dmarc(root_domain):
+    dmarc_domain = f"_dmarc.{root_domain}"
+
+    return {
+        "domain": dmarc_domain,
+        "records": collect_dig_records(dmarc_domain)
+    }
+
+
+def collect_basic_tool_outputs(domain, root_domain):
+    return {
+        "dig_target_any": run_command(["dig", domain, "ANY"], timeout=25),
+        "dig_root_any": run_command(["dig", root_domain, "ANY"], timeout=25),
+
+        "host_target": run_command(["host", domain], timeout=20),
+        "host_root": run_command(["host", root_domain], timeout=20),
+
+        "nslookup_target": run_command(["nslookup", domain], timeout=20),
+        "nslookup_root": run_command(["nslookup", root_domain], timeout=20),
+
+        "whois_root": run_command(["whois", root_domain], timeout=35),
+
+        "dnsrecon_root": run_command(
+            ["dnsrecon", "-d", root_domain],
+            timeout=90
+        ),
+
+        "dnsenum_root": run_command(
+            ["dnsenum", root_domain],
+            timeout=120
+        ),
+
+        "fierce_root": run_command(
+            ["fierce", "--domain", root_domain],
+            timeout=120
+        )
+    }
+
+
+# -----------------------------------------------------------------------------
+# Normalization helpers
+# -----------------------------------------------------------------------------
+
+
+def clean_dns_name(value):
+    if not value:
+        return value
+
+    return value.strip().strip('"').rstrip(".").lower()
+
+
+def extract_txt_values(records):
+    txt_record = records.get("TXT", {})
+    return txt_record.get("values", [])
+
+
+def find_spf(txt_values):
+    return [
+        value
+        for value in txt_values
+        if "v=spf1" in value.lower()
+    ]
+
+
+def dedupe_sorted(values):
+    cleaned = []
+
+    for value in values:
+        if value is None:
+            continue
+
+        value = str(value).strip()
+
+        if not value:
+            continue
+
+        cleaned.append(value)
+
+    return sorted(set(cleaned))
+
+
+def extract_domains_from_text(text, root_domain):
+    if not text:
+        return []
+
+    domains = []
+
+    for match in DOMAIN_PATTERN.findall(text):
+        domain = clean_dns_name(match)
+
+        if domain.endswith(root_domain):
+            domains.append(domain)
+
+    return dedupe_sorted(domains)
+
+
+def extract_ips_from_text(text):
+    if not text:
+        return []
+
+    ipv4s = IPV4_PATTERN.findall(text)
+    ipv6s = IPV6_PATTERN.findall(text)
+
+    return dedupe_sorted(ipv4s + ipv6s)
+
+
+def extract_discovered_subdomains(raw_tool_outputs, root_domain):
+    discovered = set()
+
+    discovery_tools = [
+        "dnsrecon_root",
+        "dnsenum_root",
+        "fierce_root"
+    ]
+
+    for tool_name in discovery_tools:
+        output = raw_tool_outputs.get(tool_name, {})
+        combined_text = "\n".join([
+            output.get("stdout", ""),
+            output.get("stderr", "")
+        ])
+
+        for domain in extract_domains_from_text(combined_text, root_domain):
+            if domain != root_domain:
+                discovered.add(domain)
+
+    return sorted(discovered)
+
+
+def extract_nameserver_ips(raw_tool_outputs):
+    ns_ips = []
+
+    for tool_name in ["dnsrecon_root", "dnsenum_root", "fierce_root"]:
+        output = raw_tool_outputs.get(tool_name, {})
+        combined_text = "\n".join([
+            output.get("stdout", ""),
+            output.get("stderr", "")
+        ])
+        ns_ips.extend(extract_ips_from_text(combined_text))
+
+    return dedupe_sorted(ns_ips)
+
+
+# -----------------------------------------------------------------------------
+# Normalized evidence builders
+# -----------------------------------------------------------------------------
+
+
+def build_normalized_records(domain, root_domain):
+    target_records = collect_dig_records(domain)
+    root_records = collect_dig_records(root_domain)
+    dmarc = collect_dmarc(root_domain)
+
+    root_txt = extract_txt_values(root_records)
+    dmarc_txt = extract_txt_values(dmarc["records"])
+
+    normalized = {
+        "target_domain": {
+            "domain": domain,
+            "records": target_records
+        },
+        "root_domain": {
+            "domain": root_domain,
+            "records": root_records
+        },
+        "mail_security": {
+            "spf": {
+                "present": bool(find_spf(root_txt)),
+                "records": find_spf(root_txt)
+            },
+            "dmarc": {
+                "domain": dmarc["domain"],
+                "present": bool(dmarc_txt),
+                "records": dmarc_txt
+            },
+            "dkim": {
+                "present": None,
+                "reason": "DKIM selectors were not provided and cannot be reliably inferred."
+            }
+        },
+        "authority": {
+            "target_ns": target_records.get("NS", {}).get("values", []),
+            "root_ns": root_records.get("NS", {}).get("values", []),
+            "root_soa": root_records.get("SOA", {}).get("values", []),
+            "root_caa": root_records.get("CAA", {}).get("values", [])
+        },
+        "signals": {
+            "target_has_ipv4": bool(target_records.get("A", {}).get("values")),
+            "target_has_ipv6": bool(target_records.get("AAAA", {}).get("values")),
+            "root_has_mx": bool(root_records.get("MX", {}).get("values")),
+            "root_has_spf": bool(find_spf(root_txt)),
+            "root_has_dmarc": bool(dmarc_txt),
+            "root_has_caa": bool(root_records.get("CAA", {}).get("values"))
+        }
+    }
+
+    return normalized
+
+
+def build_deterministic_findings(normalized_records):
+    findings = []
+    signals = normalized_records.get("signals", {})
+
+    target_records = normalized_records["target_domain"]["records"]
+    root_records = normalized_records["root_domain"]["records"]
+    root_ns = root_records.get("NS", {}).get("values", [])
+
+    ipv4_values = target_records.get("A", {}).get("values", [])
+    ipv6_values = target_records.get("AAAA", {}).get("values", [])
+
+    if signals.get("target_has_ipv4"):
+        findings.append(
+            f"Target domain resolves to {len(ipv4_values)} IPv4 address(es)."
+        )
+    else:
+        findings.append(
+            "No IPv4 records were observed for the target domain."
+        )
+
+    if signals.get("target_has_ipv6"):
+        findings.append(
+            f"Target domain resolves to {len(ipv6_values)} IPv6 address(es)."
+        )
+    else:
+        findings.append(
+            "No IPv6 records were observed for the target domain."
+        )
+
+    if root_ns:
+        findings.append(
+            "Root domain uses authoritative nameservers."
+        )
+    else:
+        findings.append(
+            "No authoritative nameservers were observed for the root domain."
+        )
+
+    if signals.get("root_has_mx"):
+        findings.append(
+            "MX records were observed for the root domain."
+        )
+    else:
+        findings.append(
+            "No MX records were observed for the root domain."
+        )
+
+    if signals.get("root_has_spf"):
+        findings.append(
+            "SPF record was observed for the root domain."
+        )
+    else:
+        findings.append(
+            "No SPF record was observed for the root domain."
+        )
+
+    if signals.get("root_has_dmarc"):
+        findings.append(
+            "DMARC record was observed for the root domain."
+        )
+    else:
+        findings.append(
+            "No DMARC record was observed for the root domain."
+        )
+
+    if signals.get("root_has_caa"):
+        findings.append(
+            "CAA records were observed for the root domain."
+        )
+    else:
+        findings.append(
+            "No CAA records were observed for the root domain."
+        )
+
+    return findings
+
+
+def build_confirmed_assets(normalized_records, discovered_subdomains=None, nameserver_ips=None):
+    assets = set()
+    discovered_subdomains = discovered_subdomains or []
+    nameserver_ips = nameserver_ips or []
+
+    target = normalized_records["target_domain"]
+    root = normalized_records["root_domain"]
+
+    assets.add(target["domain"])
+    assets.add(root["domain"])
+
+    for record in ["A", "AAAA", "CNAME"]:
+        for value in target["records"].get(record, {}).get("values", []):
+            assets.add(clean_dns_name(value) if record == "CNAME" else value)
+
+    for record in ["A", "AAAA", "NS", "MX", "CNAME"]:
+        for value in root["records"].get(record, {}).get("values", []):
+            if record in ["NS", "CNAME"]:
+                assets.add(clean_dns_name(value))
+            else:
+                assets.add(value)
+
+    dmarc_domain = normalized_records["mail_security"]["dmarc"]["domain"]
+    if normalized_records["mail_security"]["dmarc"]["present"]:
+        assets.add(dmarc_domain)
+
+    for subdomain in discovered_subdomains:
+        assets.add(clean_dns_name(subdomain))
+
+    for ip in nameserver_ips:
+        assets.add(ip)
+
+    return sorted(assets)
+
+
+def build_next_collection_targets(domain, root_domain, discovered_subdomains, confirmed_assets):
+    targets = set()
+
+    targets.add(domain)
+    targets.add(root_domain)
+
+    for subdomain in discovered_subdomains:
+        targets.add(clean_dns_name(subdomain))
+
+    # Keep next targets domain-focused. IPs remain confirmed assets, but future
+    # domain collectors should pivot mainly on names discovered by DNS tools.
+    for asset in confirmed_assets:
+        cleaned = clean_dns_name(asset)
+        if cleaned.endswith(root_domain):
+            targets.add(cleaned)
+
+    return sorted(targets)
+
+
+def collect_tool_status(raw_tool_outputs):
+    return {
+        name: output.get("status")
+        for name, output in raw_tool_outputs.items()
+    }
+
+
+# -----------------------------------------------------------------------------
+# Main collector entry point
+# -----------------------------------------------------------------------------
+
+
+def collect_dns_evidence(target):
+    domain = normalize_target(target)
+    root_domain = derive_root_domain(domain)
+
+    normalized_records = build_normalized_records(
+        domain,
+        root_domain
+    )
+
+    raw_tool_outputs = collect_basic_tool_outputs(
+        domain,
+        root_domain
+    )
+
+    discovered_subdomains = extract_discovered_subdomains(
+        raw_tool_outputs,
+        root_domain
+    )
+
+    nameserver_ips = extract_nameserver_ips(raw_tool_outputs)
+
+    deterministic_findings = build_deterministic_findings(
+        normalized_records
+    )
+
+    confirmed_assets = build_confirmed_assets(
+        normalized_records,
+        discovered_subdomains=discovered_subdomains,
+        nameserver_ips=nameserver_ips
+    )
+
+    next_collection_targets = build_next_collection_targets(
+        domain,
+        root_domain,
+        discovered_subdomains,
+        confirmed_assets
+    )
+
+    return {
+        "collector": "dns",
+        "target": target,
+        "domain": domain,
+        "root_domain": root_domain,
+        "tools_requested": DNS_TOOLS,
+        "tool_status": collect_tool_status(raw_tool_outputs),
+        "normalized_records": normalized_records,
+        "deterministic_findings": deterministic_findings,
+        "confirmed_assets": confirmed_assets,
+        "discovered_subdomains": discovered_subdomains,
+        "nameserver_ips": nameserver_ips,
+        "next_collection_targets": next_collection_targets,
+        "raw_tool_outputs": raw_tool_outputs
+    }
+
+
+# -----------------------------------------------------------------------------
+# Rabbit prompts owned by DNS domain
+# -----------------------------------------------------------------------------
+
+
+def build_dns_planning_prompt(target, mode):
+    return f"""
+Respond ONLY with valid JSON.
+
+You are WhiteRabbit Neo, a cybersecurity specialist used by MagnoCyber.
+
+Target: {target}
+Mode: {mode}
+Domain: dns
+
+Focus only on full DNS reconnaissance.
+
+Rules:
+- Never claim to have accessed the target before evidence is collected.
+- Never invent technologies, vulnerabilities, users, business context, firewall, WAF, or OS.
+- Recon mode must focus on evidence collection.
+- Do not recommend mitigations.
+- Do not use markdown.
+- Do not add extra text.
+
+Return exactly this JSON structure:
+
+{{
+  "target": "{target}",
+  "mode": "{mode}",
+  "domain": "dns",
+  "objective": "Collect full DNS evidence and understand name resolution, authority, mail security, and DNS discovery signals.",
+  "known_facts": [
+    "The operator provided the target: {target}",
+    "The operator selected mode: {mode}",
+    "The operator selected domain: dns"
+  ],
+  "unknowns": [
+    "Target domain DNS records",
+    "Root domain DNS records",
+    "Authoritative nameservers",
+    "SOA records",
+    "CAA records",
+    "MX records",
+    "SPF records",
+    "DMARC records",
+    "DKIM selectors",
+    "Subdomain discovery results",
+    "Tool agreement or divergence"
+  ],
+  "missing_evidence": [
+    "A records",
+    "AAAA records",
+    "CNAME records",
+    "MX records",
+    "NS records",
+    "TXT records",
+    "SOA records",
+    "CAA records",
+    "SPF policy",
+    "DMARC policy",
+    "WHOIS context",
+    "dnsrecon output",
+    "dnsenum output",
+    "fierce output"
+  ],
+  "recommended_collection": [
+    "Collect DNS records for the target domain",
+    "Collect DNS records for the root domain",
+    "Collect SOA and CAA records",
+    "Collect MX, SPF, and DMARC records",
+    "Collect WHOIS context for the root domain",
+    "Run dnsrecon against the root domain",
+    "Run dnsenum against the root domain",
+    "Run fierce against the root domain",
+    "Normalize repeated evidence",
+    "Preserve raw tool output for auditability"
+  ],
+  "initial_tracks": [
+    "DNS baseline collection",
+    "Root domain authority mapping",
+    "Mail security posture discovery",
+    "Subdomain discovery",
+    "Tool output comparison",
+    "Redundancy and divergence analysis"
+  ],
+  "confidence": "medium"
+}}
+""".strip()
+
+
+def build_dns_analysis_prompt(target, mode, evidence):
+    evidence_json = json.dumps(
+        evidence,
+        indent=2,
+        ensure_ascii=False
+    )
+
+    return f"""
+Respond ONLY with valid JSON.
+
+You are WhiteRabbit Neo, a cybersecurity specialist used by MagnoCyber.
+
+Target: {target}
+Mode: {mode}
+Domain: dns
+
+Collected full DNS evidence:
+
+{evidence_json}
+
+Rules:
+- Use ONLY collected DNS evidence.
+- Prefer deterministic_findings, confirmed_assets, discovered_subdomains, next_collection_targets, and normalized_records for analysis.
+- Use raw_tool_outputs only to confirm, enrich, or identify divergence.
+- Multiple DNS tools may return the same records.
+- Deduplicate repeated evidence before analysis.
+- Do not repeat the same fact in multiple observations.
+- If tools return conflicting values for the same record type, mention the divergence clearly.
+- Do not mention HTTP headers, HTML, page title, web routes, or security headers.
+- Do not invent information.
+- Do not explain what DNS is.
+- Do not classify DNS itself as an identified technology.
+- identified_technologies must include only observed external providers, platforms, managed services, CDNs, DNS providers, hosting providers, or security products.
+- Do not classify DNS records, DNS standards, protocols, SPF, DKIM, DMARC, MX, NS, TXT, SOA, or CAA as technologies.
+- If a provider cannot be confirmed from evidence, leave identified_technologies empty.
+- Do not recommend mitigations.
+- Do not create vulnerability findings in recon mode.
+- observations MUST be an array of short strings only.
+- confirmed_assets MUST be a flat array of strings only.
+- identified_technologies MUST be a flat array of strings only.
+- unknowns MUST be an array of short strings only.
+- next_collection_targets MUST be an array of strings only.
+- confidence must be one of: low, medium, high.
+- Set confidence based on the quality, completeness, and consistency of collected evidence.
+- Never return an empty confidence value.
+- Observations MUST start with every item from evidence.deterministic_findings copied exactly.
+- Do not remove, rewrite, invert, summarize, or reorder deterministic_findings.
+- Additional observations are allowed only for explicit tool divergence and must not duplicate or contradict deterministic_findings.
+
+Forbidden output keys:
+- raw_tool_outputs
+- normalized_records
+- deterministic_findings
+- tool_status
+- evidence
+- signals
+
+Return ONLY these keys:
+- observations
+- confirmed_assets
+- identified_technologies
+- unknowns
+- next_collection_targets
+- confidence
+
+- Do not restate or reconstruct evidence fields.
+- Do not output normalized_records.
+- Do not output raw_tool_outputs.
+- Do not output signals.
+- Do not use markdown.
+- Do not add extra text.
+
+Authoritative collector facts:
+- deterministic_findings is authoritative.
+- observations MUST be copied from deterministic_findings.
+- Do not rewrite deterministic_findings.
+- Do not summarize deterministic_findings.
+- Do not remove deterministic_findings.
+- Do not invert deterministic_findings.
+
+- confirmed_assets is authoritative.
+- Copy evidence.confirmed_assets exactly.
+- Do not invent assets.
+- Do not replace collected assets.
+- Never use placeholder domains or placeholder IP addresses.
+
+- next_collection_targets is authoritative.
+- Copy evidence.next_collection_targets exactly.
+
+- discovered_subdomains is authoritative for DNS discovery results.
+
+- normalized_records.signals is authoritative for boolean facts.
+- raw_tool_outputs is not authoritative for boolean facts when normalized_records.signals exists.
+
+
+
+Critical boolean facts from normalized_records.signals:
+- If root_has_mx is false, output exactly: "No MX records were observed for the root domain."
+- If root_has_mx is true, output exactly: "MX records were observed for the root domain."
+- If root_has_spf is false, output exactly: "No SPF record was observed for the root domain."
+- If root_has_spf is true, output exactly: "SPF record was observed for the root domain."
+- If root_has_dmarc is false, output exactly: "No DMARC record was observed for the root domain."
+- If root_has_dmarc is true, output exactly: "DMARC record was observed for the root domain."
+- These boolean facts override all examples and raw tool outputs.
+
+Output schema rules:
+- observations: strings only. Objects are invalid.
+- confirmed_assets: strings only. Objects are invalid.
+- identified_technologies: strings only. Objects are invalid.
+- unknowns: strings only. Objects are invalid.
+- next_collection_targets: strings only. Objects are invalid.
+- confirmed_assets MUST be copied from evidence.confirmed_assets.
+- Do not generate, replace, summarize, shorten, or invent assets.
+- Never use placeholder domains or placeholder IP addresses.
+- confidence MUST NOT be empty.
+
+Bad observations:
+- {{"type": "dns", "description": "..."}}
+- "DNS is a protocol that translates names to IP addresses"
+- "No HTTP security headers were observed"
+
+Return exactly this JSON structure:
+
+{{
+  "observations": [],
+  "confirmed_assets": [],
+  "identified_technologies": [],
+  "unknowns": [],
+  "next_collection_targets": [],
+  "confidence": ""
+}}
+""".strip()

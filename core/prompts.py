@@ -4,6 +4,60 @@
 import json
 def build_analysis_prompt(target, mode, domain, evidence):
 
+    if domain == "dns":
+        domain_context = """
+The selected domain is DNS.
+
+Focus only on DNS reconnaissance.
+
+Relevant evidence includes:
+- A records
+- AAAA records
+- CNAME records
+- MX records
+- NS records
+- TXT records
+- DNS provider indicators
+- CDN or proxy indicators
+
+Do not request HTTP headers, HTML content, page title, links, or web routes unless the operator selected web domain.
+"""
+
+    elif domain == "web":
+        domain_context = """
+The selected domain is WEB.
+
+Focus only on web reconnaissance.
+
+Relevant evidence includes:
+- HTTP response status
+- HTTP headers
+- Page title
+- HTML content
+- Public links
+- Static assets
+- Authentication surface
+"""
+
+    else:
+        domain_context = """
+Use the selected domain to decide what evidence is relevant.
+"""
+
+    return f"""
+You are Rabbit, the reasoning engine inside MagnoCyber.
+
+Target: {target}
+Mode: {mode}
+Domain: {domain}
+
+{domain_context}
+
+Return only valid JSON.
+"""
+
+
+
     evidence_json = json.dumps(
         evidence,
         indent=2,
