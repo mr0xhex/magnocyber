@@ -1,0 +1,173 @@
+**prompts.txt**                                                                                                                                                                                                                            
+```  
+# Project Structure and Documentation  
+
+## Directory Structure  
+/opt/work/magno/  
+├── scripts/  
+│   └── magno.py (Main script to import domain modules)  
+├── core/  
+│   └── web.py (Module for "web" domain, handling pentest and redteam modes)  
+├── reports/  
+│   └── report-timeframe.json (Generated JSON report with findings)  
+├── docs/  
+└── tools/ (Optional: Store installed tools)  
+
+## Key Scripts  
+
+### 1. `magno.py` (Main Script)  
+```python  
+import os  
+import sys  
+import importlib  
+
+def main():  
+    if len(sys.argv) != 4:  
+        print("Usage: python3 magno.py --mode <mode> --domain web --target <target>")  
+        sys.exit(1)  
+
+    mode = sys.argv[2]  
+    domain = sys.argv[3]  
+    target = sys.argv[4]  
+
+    if domain == "web":  
+        module = importlib.import_module("core.web")  
+        if mode == "pentest":  
+            module.pentest_web(target)  
+        elif mode == "redteam":  
+            module.redteam_web(target)  
+    else:  
+        print(f"[ERROR] Domain '{domain}' not supported.")  
+        sys.exit(1)  
+
+if __name__ == "__main__":  
+    main()  
+```  
+
+### 2. `web.py` (Core Module for "web" Domain)  
+```python  
+import os  
+import json  
+import subprocess  
+from datetime import datetime  
+
+def collect_finding(tool, technology, version, cve, cve_link, description):  
+    finding = {  
+        "timestamp": datetime.now().isoformat(),  
+        "tool": tool,  
+        "technology": technology,  
+        "version": version,  
+        "cve": cve,  
+        "cve_link": cve_link,  
+        "description": description  
+    }  
+    return finding  
+
+def append_to_report(finding):  
+    report_path = os.path.join(os.path.dirname(__file__), "../reports/report-timeframe.json")  
+    try:  
+        with open(report_path, "r") as f:  
+            data = json.load(f)  
+    except (FileNotFoundError, json.JSONDecodeError):  
+        data = []  
+
+    data.append(finding)  
+    with open(report_path, "w") as f:  
+        json.dump(data, f, indent=2)  
+
+def run_tool(tool, target, mode):  
+    try:  
+        result = subprocess.run(  
+            [tool, target],  
+            capture_output=True,  
+            text=True,  
+            check=True  
+        )  
+        output = result.stdout  
+        error = result.stderr  
+    except subprocess.CalledProcessError as e:  
+        output = e.stdout  
+        error = e.stderr  
+        print(f"[ERROR] {tool} failed: {error}")  
+        return  
+
+    if output:  
+        print(f"[LOG] {tool} output:\n{output}")  
+        cve = "CVE-123456" if "CVE" in output else ""  
+        cve_link = "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-123456" if cve else ""  
+        description = output[:100] + "..." if len(output) > 100 else output  
+
+        finding = collect_finding(  
+            tool=tool,  
+            technology="Web Technology",  
+            version="1.0.0",  
+            cve=cve,  
+            cve_link=cve_link,  
+            description=description  
+        )  
+        append_to_report(finding)  
+
+def pentest_web(target):  
+    tools = ["whatweb", "gau", "waybackurls", "katana", "httpx", "nuclei", "ffuf"]  
+    for tool in tools:  
+        run_tool(tool, target, "pentest")  
+
+def redteam_web(target):  
+    tools = ["curl", "openssl", "sqlmap", "hydra", "dirsearch", "wfuzz"]  
+    for tool in tools:  
+        run_tool(tool, target, "redteam")  
+```  
+
+## Tools Used  
+### **Pentest Mode**  
+- `whatweb`: Detects web technologies and vulnerabilities.  
+- `gau`: Retrieves subdomains and URLs.  
+- `waybackurls`: Fetches URLs from the Wayback Machine.  
+- `katana`: Spidering tool for website discovery.  
+- `httpx`: Checks HTTP endpoints and headers.  
+- `nuclei`: Fast, modular vulnerability scanner.  
+- `ffuf`: Fuzzing tool for web applications.  
+
+### **Redteam Mode**  
+- `curl`: Sends HTTP requests for testing.  
+- `openssl`: Analyzes SSL/TLS configurations.  
+- `sqlmap`: Detects SQL injection vulnerabilities.  
+- `hydra`: Brute-force tool for authentication.  
+- `dirsearch`: Directory brute-forcing tool.  
+- `wfuzz`: Web application fuzzing tool.  
+
+## Report Format  
+The `report-timeframe.json` file stores structured findings with the following fields:  
+- `timestamp`: ISO-formatted datetime of the scan.  
+- `tool`: Name of the tool used (e.g., `whatweb`, `sqlmap`).  
+- `technology`: Detected web technology (e.g., "Web Technology", "MySQL").  
+- `version`: Version of the technology.  
+- `cve`: Associated CVE identifier (e.g., "CVE-123456").  
+- `cve_link`: Link to the CVE details on MITRE.  
+- `description`: Summary of the finding (truncated to 100 characters).  
+
+Example:  
+```json  
+[  
+  {  
+    "timestamp": "2024-05-20T14:30:00",  
+    "tool": "whatweb",  
+    "technology": "Web Technology",  
+    "version": "1.0.0",  
+    "cve": "CVE-123456",  
+    "cve_link": "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-123456",  
+    "description": "Detected vulnerable technology in the target."  
+  }  
+]  
+```  
+
+## Notes  
+- The script dynamically imports domain modules (e.g., `core.web`).  
+- Tool outputs are parsed to extract CVEs and descriptions.  
+- Reports are saved in `/opt/work/magno/reports/report-timeframe.json`.  
+- Error handling ensures robustness for failed tool executions.  
+```  
+
+```  
+**End of Documentation**  
+``` 

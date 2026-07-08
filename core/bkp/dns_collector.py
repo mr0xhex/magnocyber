@@ -12,8 +12,6 @@ DNS_RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "CAA"]
 
 DNS_TOOLS = [
     "dig",
-    "host",
-    "nslookup",
     "whois",
     "dnsrecon",
     "dnsenum",
@@ -215,12 +213,6 @@ def collect_basic_tool_outputs(domain, root_domain):
     return {
         "dig_target_any": run_command(["dig", domain, "ANY"], timeout=25),
         "dig_root_any": run_command(["dig", root_domain, "ANY"], timeout=25),
-
-        "host_target": run_command(["host", domain], timeout=20),
-        "host_root": run_command(["host", root_domain], timeout=20),
-
-        "nslookup_target": run_command(["nslookup", domain], timeout=20),
-        "nslookup_root": run_command(["nslookup", root_domain], timeout=20),
 
         "whois_root": run_command(["whois", root_domain], timeout=35),
 
@@ -508,32 +500,40 @@ def collect_tool_status(raw_tool_outputs):
     }
 
 
-def identify_provider_candidates(normalized_records, raw_tool_outputs):
-    candidates = set()
+#def identify_provider_candidates(normalized_records, raw_tool_outputs):
+#    candidates = set()
+#
+#    root_ns = normalized_records.get("authority", {}).get("root_ns", [])
+#    soa = normalized_records.get("authority", {}).get("root_soa", [])
+#
+#    combined = " ".join(root_ns + soa).lower()
+#
+#    if "cloudflare.com" in combined:
+#        candidates.add("Cloudflare")
+#
+#    if "awsdns" in combined or "amazonaws" in combined:
+#        candidates.add("Amazon Web Services")
+#
+#    if "azure-dns" in combined:
+#        candidates.add("Microsoft Azure")
+#
+#    if "googledomains" in combined or "google.com" in combined:
+#        candidates.add("Google")
+#
+#    whois_text = raw_tool_outputs.get("whois_root", {}).get("stdout", "").lower()
+#
+#    if "godaddy" in whois_text:
+#        candidates.add("GoDaddy")
+#
+#    return sorted(candidates)
+#
 
-    root_ns = normalized_records.get("authority", {}).get("root_ns", [])
-    soa = normalized_records.get("authority", {}).get("root_soa", [])
-
-    combined = " ".join(root_ns + soa).lower()
-
-    if "cloudflare.com" in combined:
-        candidates.add("Cloudflare")
-
-    if "awsdns" in combined or "amazonaws" in combined:
-        candidates.add("Amazon Web Services")
-
-    if "azure-dns" in combined:
-        candidates.add("Microsoft Azure")
-
-    if "googledomains" in combined or "google.com" in combined:
-        candidates.add("Google")
-
-    whois_text = raw_tool_outputs.get("whois_root", {}).get("stdout", "").lower()
-
-    if "godaddy" in whois_text:
-        candidates.add("GoDaddy")
-
-    return sorted(candidates)
+def build_provider_indicators(normalized_records, raw_tool_outputs):
+    return {
+        "nameservers": normalized_records.get("authority", {}).get("root_ns", []),
+        "soa": normalized_records.get("authority", {}).get("root_soa", []),
+        "whois_excerpt": raw_tool_outputs.get("whois_root", {}).get("stdout", "")[:2000]
+    }
 
 
 def build_unknowns(normalized_records):
@@ -555,7 +555,8 @@ def build_rabbit_evidence(evidence):
         "discovered_subdomains": evidence["discovered_subdomains"],
         "nameserver_ips": evidence["nameserver_ips"],
         "next_collection_targets": evidence["next_collection_targets"],
-        "identified_provider_candidates": evidence["identified_provider_candidates"],
+        #"identified_provider_candidates": evidence["identified_provider_candidates"],
+        "provider_indicators": evidence["provider_indicators"],
         "unknowns_seed": evidence["unknowns_seed"],
         "signals": evidence["normalized_records"]["signals"]
     }
@@ -608,7 +609,11 @@ def collect_dns_evidence(target):
         "discovered_subdomains": discovered_subdomains,
         "nameserver_ips": nameserver_ips,
         "next_collection_targets": next_collection_targets,
-        "identified_provider_candidates": identify_provider_candidates(
+        #"identified_provider_candidates": identify_provider_candidates(
+         #   normalized_records,
+          #  raw_tool_outputs
+        #),
+        "provider_indicators": build_provider_indicators(
             normalized_records,
             raw_tool_outputs
         ),
@@ -710,7 +715,8 @@ Rules:
 - observations must copy deterministic_findings exactly.
 - confirmed_assets must copy confirmed_assets exactly.
 - next_collection_targets must copy next_collection_targets exactly.
-- identified_technologies may use only identified_provider_candidates.
+#- identified_technologies may use only provider_candidates.
+- identified_technologies must contain provider or technology names inferred from explicit provider evidence observed in NS, SOA, or WHOIS evidence; do not use evidence source names such as NS, SOA, WHOIS, or Nameservers as technologies.
 - unknowns may use only unknowns_seed or explicit missing evidence.
 - confidence must be one of: low, medium, high.
 

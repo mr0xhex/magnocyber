@@ -1,231 +1,161 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
-import json
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+import datetime as dt
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 
-def fix_mojibake(text):
-    if not text:
-        return text
+def _timestamp() -> str:
+    return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _normalize_target(target: str) -> Dict[str, str]:
+    original = target.strip()
+    parsed = urlparse(original if "://" in original else f"https://{original}")
+    scheme = parsed.scheme or "https"
+    host = parsed.netloc or parsed.path.split("/")[0]
+    base_url = f"{scheme}://{host}"
+    return {
+        "input": original,
+        "base_url": base_url,
+        "host": host,
+    }
+
+
+def _append(path: Path, text: str) -> None:
+    with path.open("a", encoding="utf-8", errors="replace") as f:
+        f.write(text)
+        if not text.endswith("\n"):
+            f.write("\n")
+
+
+def _run_command(name: str, command: List[str], raw_file: Path, timeout: int = 300) -> None:
+    started = dt.datetime.now().isoformat(timespec="seconds")
+    _append(raw_file, f"\n===== {name.upper()} =====")
+    _append(raw_file, f"STARTED_AT: {started}")
+    _append(raw_file, "COMMAND: " + " ".join(command))
+
+    binary = command[0]
+    if shutil.which(binary) is None:
+        _append(raw_file, f"STATUS: missing")
+        _append(raw_file, f"STDERR: Tool not found: {binary}")
+        _append(raw_file, f"FINISHED_AT: {dt.datetime.now().isoformat(timespec='seconds')}\n")
+        return
 
     try:
-        return text.encode("latin1").decode("utf-8")
-    except Exception:
-        return text
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            errors="replace",
+        )
+        _append(raw_file, f"STATUS: completed")
+        _append(raw_file, f"RETURNCODE: {result.returncode}")
+        _append(raw_file, "\n--- STDOUT ---")
+        _append(raw_file, result.stdout[:500_000] if result.stdout else "")
+        _append(raw_file, "\n--- STDERR ---")
+        _append(raw_file, result.stderr[:200_000] if result.stderr else "")
+    except subprocess.TimeoutExpired as exc:
+        _append(raw_file, "STATUS: timeout")
+        _append(raw_file, "\n--- STDOUT BEFORE TIMEOUT ---")
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        _append(raw_file, stdout[:300_000])
+        _append(raw_file, "\n--- STDERR BEFORE TIMEOUT ---")
+        _append(raw_file, stderr[:100_000])
+    finally:
+        _append(raw_file, f"FINISHED_AT: {dt.datetime.now().isoformat(timespec='seconds')}\n")
 
 
-def collect_http_evidence(target):
-    response = requests.get(
-        target,
-        timeout=15,
-        allow_redirects=True,
-        headers={
-            "User-Agent": "MagnoCyber/0.1 recon collector"
-        }
-    )
+def _write_wordlist(path: Path) -> None:
+    words = [
+        "api", "api/v1", "api/v2", "graphql", "graphiql", "swagger", "swagger-ui",
+        "swagger.json", "openapi.json", "docs", "redoc", "admin", "login", "dashboard",
+        "backend", "server", "internal", "actuator", "health", "debug", "status", "metrics",
+        ".env", ".git/HEAD", "robots.txt", "sitemap.xml", ".well-known/security.txt",
+        "backup", "backups", "config", "config.json", "config.yml", "config.yaml",
+    ]
+    path.write_text("\n".join(words) + "\n", encoding="utf-8")
 
-    detected_encoding = response.apparent_encoding or response.encoding or "utf-8"
 
-    html = response.content.decode(
-        detected_encoding,
-        errors="replace"
-    )
+def build_web_pentest_commands(target: Dict[str, str], reports_dir: Path) -> List[Dict[str, object]]:
+    base_url = target["base_url"]
+    host = target["host"]
 
-    soup = BeautifulSoup(html, "html.parser")
+    api_wordlist = reports_dir / "magno_web_api_words.txt"
+    _write_wordlist(api_wordlist)
 
-    title = soup.title.string.strip() if soup.title and soup.title.string else None
-    title = fix_mojibake(title)
+    common_wordlist_candidates = [
+        "/usr/share/seclists/Discovery/Web-Content/common.txt",
+        "/usr/share/wordlists/dirb/common.txt",
+    ]
+    common_wordlist = next((w for w in common_wordlist_candidates if Path(w).exists()), str(api_wordlist))
 
-    links = []
+    return [
+        {"name": "whatweb", "command": ["whatweb", "-a", "3", base_url], "timeout": 120},
+        {"name": "httpx", "command": ["httpx", "-u", base_url, "-status-code", "-title", "-tech-detect", "-web-server", "-follow-host-redirects"], "timeout": 120},
+        {"name": "nmap_http", "command": ["nmap", "-sV", "-Pn", "-p", "80,443,8080,8443,8000,8888,9000", "--script", "http-title,http-server-header,http-headers,http-methods", host], "timeout": 240},
+        {"name": "katana", "command": ["katana", "-u", base_url, "-silent", "-jc", "-kf", "all", "-d", "3"], "timeout": 300},
+        {"name": "gau", "command": ["gau", host], "timeout": 180},
+        {"name": "waybackurls", "command": ["waybackurls", host], "timeout": 180},
+        {"name": "nuclei_technologies", "command": ["nuclei", "-u", base_url, "-tags", "tech", "-silent"], "timeout": 240},
+        {"name": "nuclei_exposures", "command": ["nuclei", "-u", base_url, "-tags", "exposure,misconfig,panel,files", "-severity", "info,low,medium,high,critical", "-silent"], "timeout": 420},
+        {"name": "nuclei_cves", "command": ["nuclei", "-u", base_url, "-tags", "cve", "-severity", "medium,high,critical", "-silent"], "timeout": 600},
+        {"name": "testssl", "command": ["testssl", "--fast", "--warnings", "batch", base_url], "timeout": 420},
+        {"name": "nikto", "command": ["nikto", "-h", base_url, "-nointeractive"], "timeout": 420},
+        {"name": "ffuf_api_surface", "command": ["ffuf", "-u", f"{base_url}/FUZZ", "-w", str(api_wordlist), "-mc", "200,204,301,302,307,308,401,403,405", "-t", "10", "-rate", "50"], "timeout": 300},
+        {"name": "ffuf_common", "command": ["ffuf", "-u", f"{base_url}/FUZZ", "-w", common_wordlist, "-mc", "200,204,301,302,307,308,401,403,405", "-t", "20", "-rate", "100"], "timeout": 600},
+        {"name": "feroxbuster", "command": ["feroxbuster", "-u", base_url, "-w", common_wordlist, "-k", "-x", "php,js,json,txt,zip,bak,old,conf,config,yml,yaml", "--depth", "2", "--rate-limit", "50"], "timeout": 700},
+        {"name": "wpscan_detect", "command": ["wpscan", "--url", base_url, "--no-update", "--detection-mode", "mixed"], "timeout": 360},
+    ]
 
-    for tag in soup.find_all("a", href=True):
-        href = tag.get("href")
-        if href:
-            links.append(urljoin(response.url, href))
+
+def run(target: str, mode: str, reports_dir: str = "reports", run_id: Optional[str] = None) -> Dict[str, str]:
+    if mode != "pentest":
+        raise ValueError(f"web_collector currently supports only mode=pentest, received: {mode}")
+
+    normalized = _normalize_target(target)
+    reports = Path(reports_dir)
+    reports.mkdir(parents=True, exist_ok=True)
+
+    timestamp = run_id or _timestamp()
+    raw_file = reports / f"web_{mode}_{normalized['host']}_{timestamp}_raw.txt"
+
+    header = f"""MAGNO CYBER RAW EVIDENCE
+MODE: {mode}
+DOMAIN: web
+TARGET_INPUT: {normalized['input']}
+TARGET_BASE_URL: {normalized['base_url']}
+TARGET_HOST: {normalized['host']}
+TIMESTAMP: {timestamp}
+
+COLLECTOR_RULES:
+- Collector collects raw evidence only.
+- Collector does not decide findings.
+- Collector does not generate CVEs.
+- Qwen will analyze this raw evidence later.
+"""
+    raw_file.write_text(header, encoding="utf-8")
+
+    commands = build_web_pentest_commands(normalized, reports)
+    for item in commands:
+        _run_command(
+            name=str(item["name"]),
+            command=list(item["command"]),
+            raw_file=raw_file,
+            timeout=int(item["timeout"]),
+        )
+
+    _append(raw_file, "\n===== COLLECTION FINISHED =====")
+    _append(raw_file, f"FINISHED_AT: {dt.datetime.now().isoformat(timespec='seconds')}")
 
     return {
-        "collector": "web",
-        "target": target,
-        "status_code": response.status_code,
-        "final_url": response.url,
-        "encoding": response.encoding,
-        "apparent_encoding": response.apparent_encoding,
-        "used_encoding": detected_encoding,
-        "title": title,
-        "headers": dict(response.headers),
-        "links": links,
-        "html_sample": html[:5000]
+        "raw_file": str(raw_file),
+        "timestamp": timestamp,
+        "target_host": normalized["host"],
     }
-
-
-def extract_asset_hints(evidence):
-    html_sample = evidence.get("html_sample", "")
-    soup = BeautifulSoup(html_sample, "html.parser")
-
-    assets = []
-
-    for script in soup.find_all("script", src=True):
-        assets.append(script.get("src"))
-
-    for link in soup.find_all("link", href=True):
-        href = link.get("href")
-        rel = link.get("rel", [])
-
-        if "stylesheet" in rel or href.endswith((".css", ".js", ".svg", ".ico")):
-            assets.append(href)
-
-    return assets
-
-
-def compact_web_evidence_for_analysis(evidence):
-    headers = evidence.get("headers", {})
-    asset_hints = extract_asset_hints(evidence)
-
-    return {
-        "collector": evidence.get("collector"),
-        "target": evidence.get("target"),
-        "status_code": evidence.get("status_code"),
-        "final_url": evidence.get("final_url"),
-        "title": evidence.get("title"),
-        "server": headers.get("Server"),
-        "content_type": headers.get("Content-Type"),
-        "security_headers_present": {
-            "strict_transport_security": bool(headers.get("Strict-Transport-Security")),
-            "content_security_policy": bool(headers.get("Content-Security-Policy")),
-            "x_frame_options": bool(headers.get("X-Frame-Options")),
-            "x_content_type_options": bool(headers.get("X-Content-Type-Options")),
-            "referrer_policy": bool(headers.get("Referrer-Policy")),
-            "permissions_policy": bool(headers.get("Permissions-Policy")),
-        },
-        "links_count": len(evidence.get("links", [])),
-        "links": evidence.get("links", [])[:20],
-        "asset_hints": asset_hints
-    }
-
-
-def build_web_planning_prompt(target, mode):
-    return f"""
-Respond ONLY with valid JSON.
-
-You are WhiteRabbit Neo, a cybersecurity specialist used by MagnoCyber.
-
-Target: {target}
-Mode: {mode}
-Domain: web
-
-Focus only on web reconnaissance.
-
-Rules:
-- Never claim to have accessed the target.
-- Never invent technologies, vulnerabilities, users, business context, firewall, WAF, or OS.
-- Recon mode must focus on evidence collection.
-- Do not recommend mitigations.
-- Do not use markdown.
-- Do not add extra text.
-
-Return exactly this JSON structure:
-
-{{
-  "target": "{target}",
-  "mode": "{mode}",
-  "domain": "web",
-  "objective": "Collect initial web evidence and understand the target.",
-  "known_facts": [
-    "The operator provided the target: {target}",
-    "The operator selected mode: {mode}",
-    "The operator selected domain: web"
-  ],
-  "unknowns": [
-    "HTTP response status",
-    "HTTP response headers",
-    "Page title",
-    "HTML content",
-    "Technologies in use",
-    "Public routes",
-    "Authentication requirements"
-  ],
-  "missing_evidence": [
-    "HTTP response",
-    "HTTP headers",
-    "Initial HTML",
-    "Discovered links",
-    "Static assets",
-    "Technology fingerprinting"
-  ],
-  "recommended_collection": [
-    "Send a safe HTTP GET request to the target",
-    "Collect HTTP status code",
-    "Collect response headers",
-    "Collect page title",
-    "Collect initial HTML sample",
-    "Extract public links from HTML",
-    "Extract static asset hints"
-  ],
-  "initial_tracks": [
-    "HTTP baseline collection",
-    "Technology discovery",
-    "Public route mapping",
-    "Authentication surface identification",
-    "Static asset discovery"
-  ],
-  "confidence": "medium"
-}}
-""".strip()
-
-
-def build_web_analysis_prompt(target, mode, evidence):
-    compact_evidence = compact_web_evidence_for_analysis(evidence)
-
-    evidence_json = json.dumps(
-        compact_evidence,
-        indent=2,
-        ensure_ascii=False
-    )
-
-    return f"""
-Respond ONLY with valid JSON.
-
-You are WhiteRabbit Neo, a cybersecurity specialist used by MagnoCyber.
-
-Target: {target}
-Mode: {mode}
-Domain: web
-
-Collected web evidence:
-
-{evidence_json}
-
-Rules:
-- Use ONLY collected web evidence.
-- Do not invent information.
-- If something was not observed, mark it as unknown.
-- Do not recommend mitigations.
-- Do not create vulnerability findings in recon mode.
-- Do not copy the collected evidence back into the response.
-- observations must be an array of short strings only.
-- unknowns must be an array of short strings only.
-- identified_technologies must include observed technologies only.
-- confidence must be one of: low, medium, high.
-- Do not use markdown.
-- Do not add extra text.
-
-Technology identification guidance:
-- If the Server field contains cloudflare, identify Cloudflare with high confidence.
-- If static assets indicate a bundled JavaScript application, identify JavaScript frontend with medium confidence.
-- Only identify technologies directly supported by evidence.
-
-Return exactly this JSON structure:
-
-{{
-  "observations": [],
-  "confirmed_assets": [],
-  "identified_technologies": [],
-  "unknowns": [],
-  "next_collection_targets": [],
-  "confidence": ""
-}}
-""".strip()
-
-

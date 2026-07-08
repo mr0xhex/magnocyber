@@ -1,0 +1,228 @@
+scripts_dir: /opt/work/magno/scripts/
+
+tools:
+  - name: dig
+    level: recon
+    domain: dns
+    type: apt
+    package: dnsutils
+    binary: dig
+    purpose: "Consulta registros DNS: A, AAAA, MX, TXT, NS, SOA, CAA."
+
+  - name: whois
+    level: recon
+    domain: dns
+    type: apt
+    package: whois
+    binary: whois
+    purpose: "Coleta WHOIS, registrar, datas, ASN e ownership público."
+
+  - name: dnsrecon
+    level: recon
+    domain: dns
+    type: apt
+    package: dnsrecon
+    binary: dnsrecon
+    purpose: "Enumeração DNS, AXFR check e brute force controlado."
+
+  - name: dnsenum
+    level: recon
+    domain: dns
+    type: apt
+    package: dnsenum
+    binary: dnsenum
+    purpose: "Enumeração de DNS e subdomínios."
+
+  - name: subfinder
+    level: recon
+    domain: dns
+    type: go
+    binary: subfinder
+    module: github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+    purpose: "Descoberta passiva de subdomínios."
+
+  - name: dnsx
+    level: recon
+    domain: dns
+    type: go
+    binary: dnsx
+    module: github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+    purpose: "Resolução DNS em escala e validação de hosts."
+
+  - name: httpx
+    level: recon
+    domain: web
+    type: go
+    binary: httpx
+    module: github.com/projectdiscovery/httpx/cmd/httpx@latest
+    purpose: "Descobre serviços HTTP/HTTPS ativos, status, título e tecnologias."
+
+  - name: katana
+    level: recon
+    domain: web
+    type: go
+    binary: katana
+    module: github.com/projectdiscovery/katana/cmd/katana@latest
+    purpose: "Crawler para URLs, rotas e endpoints públicos."
+
+  - name: whatweb
+    level: recon
+    domain: web
+    type: git
+    repo: https://github.com/urbanadventurer/WhatWeb.git
+    path: whatweb
+    binary_path: whatweb/whatweb
+    purpose: "Fingerprint de tecnologias web candidatas."
+
+  - name: nuclei
+    level: pentest
+    domain: web
+    type: go
+    binary: nuclei
+    module: github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+    purpose: "Valida CVEs, exposições e misconfigurations por templates."
+
+  - name: ffuf
+    level: pentest
+    domain: web
+    type: go
+    binary: ffuf
+    module: github.com/ffuf/ffuf/v2@latest
+    purpose: "Descoberta de diretórios, arquivos e parâmetros."
+
+  - name: testssl.sh
+    level: pentest
+    domain: web
+    type: git
+    repo: https://github.com/testssl/testssl.sh.git
+    path: testssl.sh
+    binary_path: testssl.sh/testssl.sh
+    purpose: "Valida protocolos TLS, cifras, certificados e falhas SSL/TLS."
+
+  - name: nmap
+    level: recon
+    domain: internal_network
+    type: apt
+    package: nmap
+    binary: nmap
+    purpose: "Descobre hosts, portas, serviços e versões."
+
+  - name: naabu
+    level: recon
+    domain: external_network
+    type: go
+    binary: naabu
+    module: github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+    purpose: "Descoberta rápida de portas expostas."
+
+  - name: prowler
+    level: pentest
+    domain: cloud
+    type: git
+    repo: https://github.com/prowler-cloud/prowler.git
+    path: prowler
+    purpose: "Valida postura e misconfigurations em cloud."
+
+  - name: scout-suite
+    level: recon
+    domain: cloud
+    type: git
+    repo: https://github.com/nccgroup/ScoutSuite.git
+    path: scoutsuite
+    purpose: "Coleta e analisa postura multi-cloud."
+
+  - name: bloodhound
+    level: recon
+    domain: identity
+    type: manual
+    purpose: "Mapeia relações, privilégios e caminhos de ataque em AD/Entra ID."
+
+  - name: impacket
+    level: pentest
+    domain: identity
+    type: git
+    repo: https://github.com/fortra/impacket.git
+    path: impacket
+    purpose: "Valida protocolos SMB, Kerberos, LDAP, MSRPC e abuso autorizado."
+
+  - name: netexec
+    level: pentest
+    domain: internal_network
+    type: pipx
+    package: git+https://github.com/Pennyw0rth/NetExec
+    binary: nxc
+    purpose: "Enumeração, validação de credenciais e movimento lateral autorizado."
+
+  - name: checkdmarc
+    level: recon
+    domain: email
+    type: pipx
+    package: checkdmarc
+    binary: checkdmarc
+    purpose: "Valida SPF, DKIM, DMARC, MTA-STS e TLS-RPT."
+
+  - name: gophish
+    level: redteam
+    domain: email
+    type: git
+    repo: https://github.com/gophish/gophish.git
+    path: gophish
+    purpose: "Simulação autorizada de campanha de phishing."
+
+  - name: trivy
+    level: recon
+    domain: containers
+    type: go
+    binary: trivy
+    module: github.com/aquasecurity/trivy/cmd/trivy@latest
+    purpose: "Detecta CVEs, secrets, SBOM e misconfigurations em imagens e repositórios."
+
+  - name: syft
+    level: recon
+    domain: containers
+    type: go
+    binary: syft
+    module: github.com/anchore/syft/cmd/syft@latest
+    purpose: "Gera SBOM de imagens e artefatos."
+
+  - name: grype
+    level: pentest
+    domain: containers
+    type: go
+    binary: grype
+    module: github.com/anchore/grype/cmd/grype@latest
+    purpose: "Valida vulnerabilidades a partir de SBOM ou imagem."
+
+  - name: kube-bench
+    level: pentest
+    domain: kubernetes
+    type: git
+    repo: https://github.com/aquasecurity/kube-bench.git
+    path: kube-bench
+    purpose: "Valida conformidade CIS Kubernetes Benchmark."
+
+  - name: kube-hunter
+    level: pentest
+    domain: kubernetes
+    type: git
+    repo: https://github.com/aquasecurity/kube-hunter.git
+    path: kube-hunter
+    purpose: "Valida fraquezas de segurança em clusters Kubernetes autorizados."
+
+  - name: responder
+    level: redteam
+    domain: internal_network
+    type: git
+    repo: https://github.com/SpiderLabs/Responder.git
+    path: responder
+    purpose: "Demonstra captura/abuso de autenticação LLMNR/NBT-NS/mDNS em escopo autorizado."
+
+  - name: atomic-red-team
+    level: redteam
+    domain: internal_network
+    type: git
+    repo: https://github.com/redcanaryco/atomic-red-team.git
+    path: atomic-red-team
+    purpose: "Executa testes controlados de técnicas MITRE ATT&CK."
+
+

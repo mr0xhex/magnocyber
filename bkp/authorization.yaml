@@ -1,0 +1,6 @@
+engagement:
+  authorized: true
+  customer: AlwaysOnCyber
+  scope:
+    - app.alwaysoncyber.com
+    - api.alwaysoncyber.com
