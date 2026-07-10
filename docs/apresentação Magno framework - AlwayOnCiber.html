@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apresentação Framework Magno - AlwaysOnCyber</title>
+    <style>
+        :root {
+            --bg-color: #000000;
+            --bg-gradient: radial-gradient(circle at center, #020617 0%, #000000 100%);
+            --card-bg: rgba(15, 23, 42, 0.7);
+            --primary: #0088ff;
+            --primary-neon: #00f0ff;
+            --metallic: #cbd5e1;
+            --text-main: #f8fafc;
+            --secondary: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        /* MARCA D'ÁGUA CORPORATIVA DE FUNDO */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('logo.png');
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 50vw;
+            opacity: 0.06;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .slide-container {
+            width: 90vw;
+            height: 80vh;
+            max-width: 1200px;
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 136, 255, 0.2);
+            border-radius: 16px;
+            padding: 50px;
+            display: none;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 136, 255, 0.15);
+            backdrop-filter: blur(12px);
+            z-index: 1;
+        }
+
+        .slide-container.active {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: scale(0.98) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        /* CABEÇALHO COM ÍCONE REAL */
+        .logo-box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .company-icon {
+            width: 50px;
+            height: 50px;
+            object-fit: contain;
+        }
+
+        .logo-text {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+        .logo-text span {
+            color: var(--primary);
+        }
+
+        h1 {
+            color: var(--text-main);
+            font-size: 2.6rem;
+            margin-bottom: 25px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 15px;
+        }
+
+        h1 span {
+            color: var(--primary-neon);
+        }
+
+        .content {
+            font-size: 1.25rem;
+            line-height: 1.8;
+            flex-grow: 1;
+            color: var(--metallic);
+        }
+
+        ul {
+            list-style-type: none;
+        }
+
+        li {
+            margin-bottom: 20px;
+            position: relative;
+            padding-left: 30px;
+        }
+
+        li::before {
+            content: "🛡️";
+            position: absolute;
+            left: 0;
+            font-size: 1rem;
+            color: var(--primary);
+        }
+
+        .highlight {
+            color: var(--primary-neon);
+            font-weight: bold;
+        }
+
+        .tech-box {
+            background: rgba(0, 0, 0, 0.5);
+            border-left: 4px solid var(--primary);
+            padding: 20px;
+            margin-top: 25px;
+            border-radius: 4px;
+            font-size: 1.1rem;
+            color: #cbd5e1;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 25px;
+            width: 90vw;
+            max-width: 1200px;
+            z-index: 2;
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            padding: 12px 28px;
+            cursor: pointer;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 0 20px rgba(0, 136, 255, 0.6);
+        }
+
+        .slide-number {
+            color: var(--secondary);
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .table-style {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .table-style th, .table-style td {
+            padding: 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .table-style th {
+            color: var(--primary-neon);
+            border-bottom: 2px solid var(--primary);
+            text-transform: uppercase;
+            font-size: 1rem;
+            letter-spacing: 1px;
+        }
+
+        .flow-diagram {
+            font-family: 'Courier New', Courier, monospace;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 25px;
+            border-radius: 10px;
+            color: #00ff66;
+            white-space: pre;
+            overflow-x: auto;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            border: 1px solid rgba(0, 255, 90, 0.15);
+        }
+
+        .quote-box {
+            font-style: italic;
+            color: var(--secondary);
+            margin-top: 30px;
+            font-size: 1.1rem;
+            border-top: 1px dashed rgba(255,255,255,0.1);
+            padding-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SLIDE 1: CAPA -->
+    <div class="slide-container active">
+        <div style="text-align: center; margin: auto 0; padding-top: 5vh;">
+            <div class="logo-box">
+                <img src="logo.png" alt="Logo AlwaysOnCyber" class="company-icon">
+                <div class="logo-text">Always<span>On</span>Cyber</div>
+            </div>
+            <h1 style="font-size: 3.5rem; border: none; margin-bottom: 10px; letter-spacing: 3px;">Framework Magno</h1>
+            <p style="font-size: 1.4rem; color: var(--secondary); letter-spacing: 4px; text-transform: uppercase;">Orquestração de Múltiplas LLMs e Recon Avançado</p>
+            <div style="margin: 30px auto; width: 100px; height: 3px; background: linear-gradient(90deg, var(--primary), var(--primary-neon));"></div>
+            <p style="font-size: 1.25rem;">Módulo Operacional: <span class="highlight">Web Domain</span></p>
+            
+            <p class="quote-box">"Se você conhece o inimigo e conhece a si mesmo, não precisa temer o resultado de cem batalhas." – Sun Tzu</p>
+        </div>
+        <div class="slide-number">Slide 1 / 8</div>
+    </div>
+
+    <!-- SLIDE 2: O PROBLEMA -->
+    <div class="slide-container">
+        <h1>O Desafio do Recon <span>Tradicional</span></h1>
+        <div class="content">
+            <ul>
+                <li><span class="highlight">Overload de Dados (Ruído):</span> Scans brutos geram milhares de caminhos repetidos, links quebrados e requisições idênticas, sobrecarregando a triagem.</li>
+                <li><span class="highlight">O Gargalo Humano:</span> Analistas experientes desperdiçam tempo precioso limpando logs e separando falsos positivos manualmente.</li>
+                <li><span class="highlight">Custos de Escrita de Relatórios:</span> A compilação e tradução manual de dados complexos em um relatório PDF corporativo gasta horas críticas por cliente.</li>
+            </ul>
+            <div class="tech-box">Solução com o Framework Magno: Automação cirúrgica do ruído técnico e centralização de inteligência local estruturada.</div>
+        </div>
+        <div class="slide-number">Slide 2 / 8</div>
+    </div>
+
+    <!-- SLIDE 3: FILOSOFIA MULTI-LLM -->
+    <div class="slide-container">
+        <h1>Filosofia de Projeto: <span>Multi-LLM Local</span></h1>
+        <div class="content">
+            <ul>
+                <li><span class="highlight">Especialização Absoluta de Papéis:</span> Evitamos modelos generalistas. Uma IA atua estritamente na análise lógica dos dados; outra atua na redação e estética do texto.</li>
+                <li><span class="highlight">Ciclo de Vida Dinâmico (VRAM Otimizada):</span> Modelos são carregados individualmente na GPU via Ollama, executam a missão pontual e liberam a memória de vídeo imediatamente.</li>
+                <li><span class="highlight">Segurança On-Premises Completa:</span> Todo o processamento de vulnerabilidades roda 100% local. Absolutamente nenhum dado de infraestrutura dos nossos clientes é vazado para nuvens de terceiros (OpenAI/Anthropic).</li>
+            </ul>
+        </div>
+        <div class="slide-number">Slide 3 / 8</div>
+    </div>
+
+    <!-- SLIDE 4: FLUXOGRAMA -->
+    <div class="slide-container">
+        <h1>O Fluxograma Técnico <span>(Pipeline)</span></h1>
+        <div class="content">
+            <div class="flow-diagram">
+ [ TARGET DOMAIN ] ──► [ PYTHON ORCHESTRATOR ] ──► (Geração de Pasta por Timestamp)
+                             │
+       ┌─────────────────────┴──────────────────────┐
+       ▼                     ▼                      ▼
+ [ SUBFINDER ] ──► [ NUCLEI ] + [ KATANA ] ──► [ FEROXBUSTER ]
+       │                     │                      │
+       └─────────────────────┬──────────────────────┘
+                             ▼
+                   [ SMART DATA FILTER ] (Mestre de Cerimônias: Purga 90% do ruído bruto)
+                             │
+                             ▼
+                   [ QWEN 2.5:14B ]      (Analista Sênior: Mapeamento de Risco em JSON)
+                             │
+                             ▼
+                   [ LLAMA 3.1:8B ]      (Technical Writer: Geração de Texto Fluido)
+                             │
+                             ▼
+                [ EXECUTIVE PDF REPORT ] (Entregável de Alto Padrão Pronto)</div>
+        </div>
+        <div class="slide-number">Slide 4 / 8</div>
+    </div>
+
+    <!-- SLIDE 5: COMPONENTES DA LINHA DE FRENTE -->
+    <div class="slide-container">
+        <h1>A Linha de Frente: <span>Ferramentas de Recon</span></h1>
+        <div class="content grid-2">
+            <div>
+                <p><span class="highlight">Subfinder</span></p>
+                <p style="font-size: 1.05rem; margin-bottom: 20px; color: #cbd5e1;">Mapeamento passivo de subdomínios do alvo principal utilizando múltiplas fontes. Define o verdadeiro perímetro exposto.</p>
+                
+                <p><span class="highlight">Nuclei</span></p>
+                <p style="font-size: 1.05rem; margin-bottom: 20px; color: #cbd5e1;">Varredura veloz baseada em regras e templates globais. Detecta falhas conhecidas, CVEs e configurações incorretas de cara.</p>
+            </div>
+            <div>
+                <p><span class="highlight">Katana</span></p>
+                <p style="font-size: 1.05rem; margin-bottom: 20px; color: #cbd5e1;">Spider/Crawler web avançado que varre o código fonte caçando links dinâmicos, endpoints JavaScript ocultos e formulários.</p>
+                
+                <p><span class="highlight">Feroxbuster</span></p>
+                <p style="font-size: 1.05rem; margin-bottom: 20px; color: #cbd5e1;">Força bruta recursiva ultra-rápida de diretórios. Descobre arquivos e pastas ocultas no servidor (ex: .env, backups, painéis).</p>
+            </div>
+        </div>
+        <div class="slide-number">Slide 5 / 8</div>
+    </div>
+
+    <!-- SLIDE 6: INTEGRAÇÃO DE INTELIGÊNCIA -->
+    <div class="slide-container">
+        <h1>Cérebro de IA: <span>Divisão de Papéis</span></h1>
+        <div class="content">
+            <table class="table-style">
+                <thead>
+                    <tr>
+                        <th>IA / Modelo</th>
+                        <th>Função Estratégica</th>
+                        <th>Diferencial Operacional</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="highlight" style="color: var(--primary-neon);">Qwen 2.5 (14B)</td>
+                        <td>Analista Sênior de Segurança</td>
+                        <td>Processamento de alta capacidade lógica. Absorve até 128k tokens de contexto e gera uma matriz relacional rigorosa em formato JSON puro.</td>
+                    </tr>
+                    <tr>
+                        <td class="highlight" style="color: #ffffff;">Llama 3.1 (8B)</td>
+                        <td>Technical Writer (Redator Técnico)</td>
+                        <td>Excepcional fluência idiomática e tom executivo. Transforma a matriz estruturada do Qwen em texto explicativo e claro para tomadores de decisão.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="slide-number">Slide 6 / 8</div>
+    </div>
+
+    <!-- SLIDE 7: VANTAGEM COMERCIAL -->
+    <div class="slide-container">
+        <h1>Vantagem Comercial & <span>Métricas</span></h1>
+        <div class="content">
+            <ul>
+                <li><span class="highlight">Estrutura de Linha de Base (Baseline):</span> O versionamento sistemático em pastas cronológicas permite que o framework analise retestes comparando logs antigos com novos em segundos.</li>
+                <li><span class="highlight">Agilidade de Entrega drástica:</span> Redução do lead time de inteligência. O tempo entre o término do scan técnico e o PDF executivo pronto cai de horas para minutos.</li>
+                <li><span class="highlight">Diferencial de Mercado Competitivo:</span> A AlwaysOnCyber passa a oferecer auditorias rápidas e contínuas com relatórios dinâmicos de alta fidelidade técnica.</li>
+            </ul>
+        </div>
+        <div class="slide-number">Slide 7 / 8</div>
+    </div>
+
+    <!-- SLIDE 8: ROADMAP -->
+    <div class="slide-container">
+        <h1>O Futuro do Framework <span>(Roadmap)</span></h1>
+        <div class="content">
+            <ul>
+                <li><span class="highlight">Fase 1 (Atual):</span> Consolidação absoluta do Domínio Web. Refinamento de prompts e maturidade dos filtros de ruído.</li>
+                <li><span class="highlight">Fase 2 (Exploração Ativa Automatizada):</span> Implementação de scripts seguros para validação ativa de brechas críticas encontradas (ex: tentativas de bypass de 2FA e injeções).</li>
+                <li><span class="highlight">Fase 3 (Expansão de Escopo - Wi-Fi Domain):</span> Módulo exclusivo focado em auditoria física de redes sem fio, automação de capturas de handshake e quebra assistida por hardware local.</li>
+            </ul>
+            <div style="text-align: center; margin-top: 50px; color: var(--primary-neon); font-size: 1.3rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase;">
+                AlwaysOnCyber — Inteligência Avançada em Defesa Cibernética
+            </div>
+        </div>
+        <div class="slide-number">Slide 8 / 8</div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="controls">
+        <button id="prevBtn" onclick="changeSlide(-1)">Anterior</button>
+        <button id="nextBtn" onclick="changeSlide(1)">Próximo</button>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide-container');
+
+        function changeSlide(direction) {
+            slides[currentSlide].classList.remove('active');
+            currentSlide += direction;
+
+            if (currentSlide >= slides.length) currentSlide = 0;
+            if (currentSlide < 0) currentSlide = slides.length - 1;
+
+            slides[currentSlide].classList.add('active');
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowRight' || event.key === ' ') {
+                changeSlide(1);
+            } else if (event.key === 'ArrowLeft') {
+                changeSlide(-1);
+            }
+        });
+    </script>
+</body>
+</html>

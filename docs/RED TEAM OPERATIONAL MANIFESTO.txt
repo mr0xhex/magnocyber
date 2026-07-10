@@ -1,0 +1,37 @@
+RED TEAM OPERATIONAL MANIFESTO: MAGNUS CYBER FRAMEWORK (MCF)
+1. Visão Geral do Ecossistema Offensivo
+
+O Magnus Cyber Framework (MCF) é uma plataforma proprietária de armas cibernéticas e automação de Red Team Operations. Desenvolvido para rodar nativamente em ambientes de simulação de adversários (Kali Linux), o MCF foi projetado para executar reconhecimento de alta intensidade, inteligência de ameaças (Threat Intel) e exploração automatizada de vulnerabilidades. O objetivo central do framework é simular o comportamento de atores de ameaças avançadas (APTs), eliminando os gargalos da análise humana e centralizando a triagem de alvos em inteligência artificial local de última geração.
+2. Cadeia de Ataque e Engenharia Dinâmica (Kill Chain)
+
+Em vez de depender de arquiteturas de varredura estáticas ou ferramentas isoladas, o MCF implementa o conceito de Loose Coupling (Acoplamento Frouxo) e Injeção Dinâmica em RAM:
+
+    Arsenal de Reconhecimento e Varredura: O framework dispara subprocessos paralelos utilizando ferramentas de elite do Red Team, como Subfinder (mapeamento de perímetro e descoberta de subdomínios), Nuclei (injeção de exploits e templates de vulnerabilidades), Katana (spidering e mapeamento de endpoints via JSON Lines estruturado com a flag -jc) e Feroxbuster (força bruta agressiva de diretórios e arquivos ocultos).
+
+    Agregador de Telemetria em Memória: Para evitar assinaturas de disco e garantir performance máxima no tratamento dos logs de ataque, o script Python executa uma varredura cega no diretório cronológico da operação. Ele absorve os outputs individuais das ferramentas diretamente para a memória RAM, padronizando os objetos JSON de forma indexada antes da entrega analítica.
+
+    Pipeline Analítico de Triagem (Dual-LLM Pipeline): O MCF delega a análise tática a dois motores de IA locais integrados via Ollama:
+
+        Analista de Exploração (Qwen 14B): Avalia a telemetria unificada na memória, cruza subdomínios ativos e endpoints expostos com as falhas detectadas, e estrutura o vetor de ataque.
+
+        Relator de Operações (Llama 3.1 8b): Traduz os achados técnicos e as provas de conceito em inteligência executiva comercial.
+
+3. Ciclo de Vida da Operação (Execution Lifecycle)
+
+    Ingress (Alvo): O operador define o alvo estratégico (--target domain.com). O MCF cria de forma isolada uma pasta rotulada com Timestamp e o Host limpo para armazenar as evidências.
+
+    Weaponization & Scan (Ataque): As ferramentas varrem o perímetro externo. O Katana limpa as strings de código JavaScript poluentes com o parâmetro -jc para focar apenas em rotas válidas.
+
+    RAM Accumulator (Consolidação): O motor em Python unifica as gavetas de memória correspondentes a cada arquivo gerado pelas ferramentas.
+
+    AI Post-Exploitation (Auditoria): O Qwen processa a massa de dados estruturada na RAM e identifica os vetores reais de comprometimento.
+
+    Reporting (Relatório de Impacto): O gerador compila um documento PDF executivo de alto impacto através da biblioteca ReportLab, blindado com renderizadores automáticos de quebra de linha (Word Wrap) para suportar URLs e payloads longos nas tabelas de findings.
+
+4. Próximos Passos (Red Team Roadmap)
+
+    Integração modular de novos vetores ofensivos (ex: Nmap para varredura de portas abertas, WPScan para CMS enfraquecidos) sem necessidade de reescrever o motor de memória.
+
+    Aprimoramento contínuo dos prompts ofensivos para focar em vulnerabilidades críticas do Top 10 OWASP e CVEs de dia zero (0-days).
+
+    Expansão para monitoramento contínuo e persistente de perímetros externos da AlwaysOnCyber Operations.
