@@ -80,6 +80,7 @@ def run_recon_pipeline(target_domain, target_reports_dir, subdomains_file, nucle
     )
 
 
+
 def load_file(path):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -169,6 +170,7 @@ def call_ollama(model, system_prompt, user_data, force_json=False):
     except Exception as e:
         print(f"[!] Error invoking Ollama ({model}): {e}")
         return None
+
 
 
 def generate_pdf_report(target_domain, json_data, output_pdf_name):
@@ -404,3 +406,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
